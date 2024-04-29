@@ -101,7 +101,9 @@ int main() {
 		/** 3. ÄÚ²¿ÃüÁî */
 		if (strcmp(arg[0], "exit") == 0) {  // exit ÃüÁî
 			add_history_command(input);
+
 			printf(" Bye!\n");
+
 			for (i = 0; i < k; i++) {
 				free(arg[i]);
 			}
@@ -110,7 +112,9 @@ int main() {
 		}
 		if(strcmp(arg[0], "history") == 0){  // history ÃüÁî
 			add_history_command(input);
+
 			show_history_command();
+
 			for (i = 0; i < k; i++) {
 				free(arg[i]);
 			}
@@ -118,6 +122,10 @@ int main() {
 			continue;
 		}
 		if(strcmp(arg[0], "cd") == 0){  // cd ÃüÁî
+			add_history_command(input);
+
+			cd(arg[1]);
+
 			for (i = 0; i < k; i++) {
 				free(arg[i]);
 			}
@@ -304,7 +312,12 @@ int pipel() {
 	return 0;
 }
 
-void cd() {
+void cd(char* route) {
+	if (route != NULL) {
+		if (chdir(route) < 0) {
+			printf(" System can not find the specified path '%s.\n", route);
+		}
+	}
 }
 
 void jobs() {
