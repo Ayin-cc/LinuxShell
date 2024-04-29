@@ -1,14 +1,14 @@
 /*****************************************************************//**
  * @file   LinuxShell.c
  * @brief  A simple Linux Shell supports external command, pipe, I/O redirect and background job.
- *         It's for OS assignment, written in C and built by CMake.
+ *         It's written in C and built by CMake.
  * @author Ayin
  * @date   April 2024
  *********************************************************************/
 
 #include "LinuxShell.h"
 
-int main(int argc, char argv[]) {
+int main() {
 	init_environment();
 
 	while (1) {
@@ -22,7 +22,7 @@ int main(int argc, char argv[]) {
 		 * input_len 用户输入命令的长度
 		 * status 
 		 */
-		char c, *arg[20], path[100], * input = NULL;
+		char c, *arg[20], path[100], *input = NULL;
 		int i = 0, j = 0, k = 0, is_pr = 0, is_bg = 0, input_len = 0, status = 0;
 		pid_t pid = 0;
 
@@ -34,8 +34,9 @@ int main(int argc, char argv[]) {
 		sigaction(SIGCHLD, &act, NULL);
 		signal(SIGTSTP, ctrl_z);
 
+		/** 打印提示符 */
+		getcwd(path, sizeof(char) * 100);
 		printf(PROMPT, path);
-
 
 		/** 获取输入 */
 		while ((c = getchar()) == ' ' || c == '\t' || c == '\n' || c == EOF) {  // 跳过空格等无用信息
@@ -99,8 +100,8 @@ int main(int argc, char argv[]) {
 
 		/** 3. 内部命令 */
 		if (strcmp(arg[0], "exit") == 0) {  // exit 命令
-			add_history_command();
-			printf("Bye!");
+			add_history_command(input);
+			printf(" Bye!\n");
 			for (i = 0; i < k; i++) {
 				free(arg[i]);
 			}
@@ -108,7 +109,7 @@ int main(int argc, char argv[]) {
 			break;
 		}
 		if(strcmp(arg[0], "history") == 0){  // history 命令
-			add_history_command();
+			add_history_command(input);
 			show_history_command();
 			for (i = 0; i < k; i++) {
 				free(arg[i]);
@@ -147,6 +148,8 @@ int main(int argc, char argv[]) {
 
 		/** 4. 外部命令 */
 		if (is_pr == 0) {
+			add_history_command(input);
+
 			if (is_founded(arg[0]) == 0) {
 				printf(" %s: Executable program not found.\n", arg[0]);
 				for (i = 0; i < k; i++) {
@@ -158,24 +161,23 @@ int main(int argc, char argv[]) {
 
 			// 执行命令
 			if ((pid = fork()) == -1) {
-				printf(" %s: Failed to execute.", arg[0]);
+				printf(" %s: Failed to execute.\n", arg[0]);
 			}
 			else if (pid == 0) {  // 子进程
 				if (is_bg == 0) {
 					execvp(arg[0], arg);
 					// 子进程未被成功执行
-					printf(" %s: Error command.", arg[0]);
+					printf(" %s: Error command.\n", arg[0]);
 					exit(1);
 				}
 				if (is_bg == 1) {
 					freopen("/dev/null", "w", stdout);
 					freopen("/dev/null", "r", stdin);
-					// 加入节点, 
+					// 加入节点
 					add_job_node();
-					signal(SIGCHLD, del_job_node);
 					execvp(arg[0], arg);
 					// 子进程未被成功执行
-					printf(" %s: Error command.", arg[0]);
+					printf(" %s: Error command.\n", arg[0]);
 				}
 			}
 			else if(pid > 0) {  // 父进程
@@ -183,7 +185,7 @@ int main(int argc, char argv[]) {
 					waitpid(pid, &status, 0);
 					int err = WEXITSTATUS(status);
 					if (err) {
-						printf("Error: %s\n", strerror(err));
+						printf(" Error: %s\n", strerror(err));
 					}
 				}
 			}
@@ -197,16 +199,97 @@ int main(int argc, char argv[]) {
 	}
 }
 
+void init_path(char* str) {
+	int i = 0, j = 0, k = 0;
+	char c, buf[64], temp[128], *path;
+	while ((c = str[i]) != '=') {
+		buf[i++] = c;
+		if (i > 63) {
+			printf(" Init environment error. The profile param name out of range.");
+			exit(1);
+		}
+	}
+	buf[i++] = '\0';
+
+	if (strcmp(buf, "PATH") == 0) {
+		while (str[i] != '\0') {
+			if (str[i] == ':') {  // 冒号为分隔符，取出该段地址
+				if (j >= 128) {
+					printf(" Init environment error. The path length out of range.");
+					exit(1);
+				}
+				temp[j++] = '/';
+				temp[j] = '\0';
+
+				path = (char*)malloc(j);
+				strcpy(path, temp);
+
+				if (k >= 9) {
+					printf(" Init environment error. Num of environment path out of range.");
+					exit(1);
+				}
+				env_path[k++] = path;
+				env_path[k] = NULL;
+				//printf("%s\n", env_path[k - 1]);
+
+				j = 0;
+				i++;
+			}
+			else {
+				temp[j++] = str[i++];
+			}
+		}
+	}
+	
+}
+
 void init_environment() {
+	char buf[1024];
+	FILE* fptr;
+	if ((fptr = fopen("ysh_profile", "r")) == NULL) {
+		printf(" Init environment error.\n");
+		exit(1);
+	}
+
+	while (fgets(buf, sizeof(buf), fptr)) {
+		init_path(buf);
+	}
+
+	
+	sig_z = 0;
+	strcpy(env_history.history_command[0], "Init the environment");
+	env_history.start = 0;
+	env_history.end = 0;
+	head = NULL;
+	end = NULL;
 }
 
-void init_path() {
-}
-
-void add_history_command() {
+void add_history_command(char* input) {
+	env_history.end = (env_history.end + 1) % MAX_HISTORY;
+	if (env_history.end == env_history.start) {  // 数组开始循环
+		env_history.start = (env_history.start + 1) % MAX_HISTORY;
+	}
+	strcpy(env_history.history_command[env_history.end], input);
 }
 
 void show_history_command() {
+	int index = 0;
+	if (env_history.start == env_history.end) {  // 空
+		return;
+	}
+	else if (env_history.start < env_history.end) {  // 0 ~ end
+		for (int i = 0; i <= env_history.end; i++) {
+			printf(" %d\t%s\n", index++, env_history.history_command[i]);
+		}
+	}
+	else {  // start ~ MAX + 0 ~ end;
+		for (int i = env_history.start; i < MAX_HISTORY; i++) {
+			printf(" %d\t%s\n", index++, env_history.history_command[i]);
+		}
+		for (int i = 0; i <= env_history.end; i++) {
+			printf(" %d\t%s\n", index++, env_history.history_command[i]);
+		}
+	}
 }
 
 int is_founded(char* exec) {

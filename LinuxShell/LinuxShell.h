@@ -17,11 +17,11 @@
 #define BUF_SIZE 256	// 缓存区大小
 #define PROMPT " ysh@%s> "	// 提示符
 
-// 存放历史命令的结构
+// 存放历史命令的循环数组
 typedef struct ENV_HISTORY {
 	int start;
 	int end;
-	char history_command[MAX_HISTORY][100];
+	char history_command[MAX_HISTORY][128];
 }ENV_HISTORY;
 
 // 作业链表
@@ -43,23 +43,24 @@ typedef struct NODE {
  * end 作业链表尾
  */
 char *env_path[10], buf[BUF_SIZE];
-int sig_z = 0;
+int sig_z;
 ENV_HISTORY env_history;
-NODE* head, end;
+NODE *head, *end;
 
 
 
 // 程序要用的函数声明
 
 /**
+ * @brief 初始化查找路径.
+ * @param str profile文件中的字段
+ */
+void init_path(char* str);
+
+/**
  * @brief 初始化环境.
  */
 void init_environment();
-
-/**
- * @brief 初始化查找路径.
- */
-void init_path();
 
 /**
  * @brief 向ENV_HISTORY中记录命令.
