@@ -43,7 +43,7 @@ typedef struct NODE {
  * end 作业链表尾
  */
 char *env_path[10], buf[BUF_SIZE];
-int sig_z;
+pid_t _pid;  // 前台作业的pid，没有前台作业时为0
 ENV_HISTORY env_history;
 NODE *head, *end;
 
@@ -65,7 +65,7 @@ void init_environment();
 /**
  * @brief 向ENV_HISTORY中记录命令.
  */
-void add_history_command();
+void add_history_command(char* input);
 
 /**
  * @brief 显示历史命令.
@@ -93,7 +93,7 @@ int pipel();
 /**
  * @brief 处理cd命令.
  */
-void cd();
+void cd(char* route);
 
 /**
  * @brief 处理jobs命令.
@@ -102,30 +102,33 @@ void jobs();
 
 /**
  * @brief 向jobs命令的任务链表中增加节点.
+ * @param command 命令名称
+ * @param pid 命令的pid
  */
-void add_job_node();
+void add_job_node(char* command, pid_t pid);
 
 /**
  * @brief 从jobs命令的任务链表中删除节点.
  */
-void del_job_node();
+void del_job_node(int sig, siginfo_t sig_info);
 
 /**
- * @brief 处理 CTRL + Z 快捷键.
+ * @brief 处理 CTRL + Z 快捷键, 将前台程序挂起.
  */
 void ctrl_z();
 
-/**
- * @brief 将标志位设置为1.
- */
-void set_flag();
 
 /**
- * @brief 处理bg命令.
+ * @breif 处理 CTRL + C 快捷键, 将前台程序强制杀死.
  */
-void bg();
+void ctrl_c();
 
 /**
- * @brief 处理fg命令.
+ * @brief 处理bg命令, 将指定命令放到后台执行.
  */
-void fg();
+void bg(pid_t pid);
+
+/**
+ * @brief 处理fg命令, 将指定命令放到前台执行.
+ */
+void fg(pid_t pid);
