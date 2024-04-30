@@ -15,7 +15,7 @@
 // 程序要用的宏定义
 #define MAX_HISTORY 12	// 最多保存的历史命令条数
 #define BUF_SIZE 256	// 缓存区大小
-#define PROMPT " ysh@%s> "	// 提示符
+#define PROMPT "ysh@%s> "	// 提示符
 
 // 存放历史命令的循环数组
 typedef struct ENV_HISTORY {
@@ -110,7 +110,7 @@ void add_job_node(char* command, pid_t pid);
 /**
  * @brief 从jobs命令的任务链表中删除节点.
  */
-void del_job_node(int sig, siginfo_t sig_info);
+void del_job_node(int sig, siginfo_t* sig_info);
 
 /**
  * @brief 处理 CTRL + Z 快捷键, 将前台程序挂起.

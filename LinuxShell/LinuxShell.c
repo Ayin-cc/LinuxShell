@@ -147,7 +147,7 @@ int main() {
 		if(strcmp(arg[0], "bg") == 0){  // bg 命令
 			add_history_command(input);
 			if (k != 2) {
-				printf(" Usage: bg <pid>.\n");
+				printf("Usage: bg <pid>.\n");
 				continue;
 			}
 
@@ -162,7 +162,7 @@ int main() {
 		if(strcmp(arg[0], "fg") == 0){  // fg 命令
 			add_history_command(input);
 			if (k != 2) {
-				printf(" Usage: fg <pid>.\n");
+				printf("Usage: fg <pid>.\n");
 				continue;
 			}
 
@@ -180,7 +180,7 @@ int main() {
 			add_history_command(input);
 
 			if (is_founded(arg[0]) == 0) {
-				printf(" %s: Executable program not found.\n", arg[0]);
+				printf("%s: Executable program not found.\n", arg[0]);
 				for (i = 0; i < k; i++) {
 					free(arg[i]);
 				}
@@ -190,13 +190,13 @@ int main() {
 
 			// 执行命令
 			if ((pid = fork()) == -1) {
-				printf(" %s: Failed to execute.\n", arg[0]);
+				printf("%s: Failed to execute.\n", arg[0]);
 			}
 			else if (pid == 0) {  // 子进程
 				if (is_bg == 0) {
 					execvp(arg[0], arg);
 					// 子进程未被成功执行
-					printf(" %s: Error command.\n", arg[0]);
+					printf("%s: Error command.\n", arg[0]);
 					exit(1);
 				}
 				if (is_bg == 1) {
@@ -205,7 +205,7 @@ int main() {
 
 					execvp(arg[0], arg);
 					// 子进程未被成功执行
-					printf(" %s: Error command.\n", arg[0]);
+					printf("%s: Error command.\n", arg[0]);
 				}
 			}
 			else if(pid > 0) {  // 父进程
@@ -214,10 +214,10 @@ int main() {
 
 				if (is_bg == 0) {
 					_pid = pid;
-					waitpid(pid, &status, 0);
+					waitpid(pid, &status, WUNTRACED | WCONTINUED);
 					int err = WEXITSTATUS(status);
 					if (err) {
-						printf(" Error: %s\n", strerror(err));
+						printf("Error: %s\n", strerror(err));
 					}
 					_pid = 0;
 				}
@@ -238,7 +238,7 @@ void init_path(char* str) {
 	while ((c = str[i]) != '=') {
 		buf[i++] = c;
 		if (i > 63) {
-			printf(" Init environment error. The profile param name out of range.");
+			printf("Init environment error. The profile param name out of range.");
 			exit(1);
 		}
 	}
@@ -248,7 +248,7 @@ void init_path(char* str) {
 		while (str[i] != '\0') {
 			if (str[i] == ':') {  // 冒号为分隔符，取出该段地址
 				if (j >= 128) {
-					printf(" Init environment error. The path length out of range.");
+					printf("Init environment error. The path length out of range.");
 					exit(1);
 				}
 				temp[j++] = '/';
@@ -258,7 +258,7 @@ void init_path(char* str) {
 				strcpy(path, temp);
 
 				if (k >= 9) {
-					printf(" Init environment error. Num of environment path out of range.");
+					printf("Init environment error. Num of environment path out of range.");
 					exit(1);
 				}
 				env_path[k++] = path;
@@ -325,6 +325,16 @@ void show_history_command() {
 }
 
 int is_founded(char* exec) {
+	int i = 0;
+	while (env_path[i] != NULL) {
+		strcpy(buf, env_path[i]);
+		strcat(buf, exec);
+		if (access(buf, F_OK) == 0) {
+			return 1;
+		}
+		i++;
+	}
+
 	return 0;
 }
 
@@ -339,7 +349,7 @@ int pipel() {
 void cd(char* route) {
 	if (route != NULL) {
 		if (chdir(route) < 0) {
-			printf(" System can not find the specified path '%s.\n", route);
+			printf("System can not find the specified path '%s.\n", route);
 		}
 	}
 }
@@ -377,14 +387,14 @@ void add_job_node(char* command, pid_t pid) {
 	}
 }
 
-void del_job_node(int sig, siginfo_t sig_info) {
+void del_job_node(int sig, siginfo_t* sig_info) {
 	if (head == NULL) {
 		return;
 	}
 
 	// 从链表中删除对应节点
 	NODE* node = head;
-	int pid = sig_info.si_pid;
+	int pid = sig_info->si_pid;
 	if (node->pid == pid) {  // 要删除的节点为头结点
 		head = head->link;
 		free(node);
@@ -412,9 +422,15 @@ void ctrl_z() {
 	NODE* node = head;
 	while (node->pid != _pid) {
 		node = node->link;
+		if (node == NULL) {
+			printf("Failed to stop.\n");
+			return;
+		}
 	}
 	strcpy(node->state, "stopped");
 	kill(_pid, SIGSTOP);
+	printf('\n');
+	jobs();
 
 	return;
 }
@@ -426,8 +442,13 @@ void ctrl_c() {
 	NODE* node = head;
 	while (node->pid != _pid) {
 		node = node->link;
+		if (node == NULL) {
+			printf("Failed to terminate.\n");
+			return;
+		}
 	}
 	kill(_pid, SIGTERM);
+	printf('\n');
 	
 	return;
 }
