@@ -42,7 +42,7 @@ typedef struct NODE {
  * head 作业链表头
  * end 作业链表尾
  */
-char *env_path[10], buf[BUF_SIZE];
+char *env_path[10], buf[BUF_SIZE], path[128];
 pid_t _pid;  // 前台作业的pid，没有前台作业时为0
 ENV_HISTORY env_history;
 NODE *head, *end;
@@ -83,12 +83,12 @@ int is_founded(char* exec);
  * @param in 输入的命令
  * @param len 命令的长度
  */
-int redirect(char* in, int len);
+int redirect(char* input, int input_len);
 
 /**
  * @brief 管道命令的处理.
  */
-int pipel();
+int pipel(char* input, int input_len);
 
 /**
  * @brief 处理cd命令.

@@ -22,7 +22,7 @@ int main() {
 		 * input_len 用户输入命令的长度
 		 * status 
 		 */
-		char c, *arg[20], path[100], *input = NULL;
+		char c, *arg[20], *input = NULL;
 		int i = 0, j = 0, k = 0, is_pr = 0, is_bg = 0, input_len = 0, status = 0;
 		pid_t pid = 0;
 
@@ -62,12 +62,12 @@ int main() {
 			if (input[i] == '<' || input[i] == '>' | input[i] == '|') {
 				if (input[i] == '|') {  // 管道命令
 					add_history_command(input);
-					pipel();					
+					pipel(input, input_len);
 					free(input);
 				}
 				else {  // 重定向命令
 					add_history_command(input);
-					redirect(input, input_len);					
+					redirect(input, input_len);
 					free(input);
 				}
 				is_pr = 1;
@@ -109,7 +109,7 @@ int main() {
 				free(arg[i]);
 			}
 			free(input);
-			break;
+			exit(0);
 		}
 		if(strcmp(arg[0], "history") == 0){  // history 命令
 			add_history_command(input);
@@ -197,7 +197,7 @@ int main() {
 					execvp(arg[0], arg);
 					// 子进程未被成功执行
 					printf("%s: Error command.\n", arg[0]);
-					exit(1);
+					continue;
 				}
 				if (is_bg == 1) {
 					freopen("/dev/null", "w", stdout);
@@ -338,11 +338,207 @@ int is_founded(char* exec) {
 	return 0;
 }
 
-int redirect(char* in, int len) {
-	return 0;
+int redirect(char* input, int input_len) {
+	int redir_in = 0, redir_out = 0, flag_io = 0, is_bg = 0, i, j, k, status = 0;  // flag_io: 1代表IN, 0代表OUT
+	char *file_in = NULL, *file_out = NULL, *arg[20];
+	pid_t pid;
+
+	memset(arg, sizeof(arg), NULL);
+
+	// 解析命令参数
+	for (i = 0, j = 0, k = 0; i <= input_len; i++) {
+		if (input[i] == ' ' || input[i] == '\0') {
+			if (j == 0) {  // 省略多个相连的空格
+				continue;
+			}
+			else {  // 取出一个参数
+				buf[j++] = '\0';
+				arg[k] = (char*)malloc(sizeof(char) * j);
+				strcpy(arg[k++], buf);
+				j = 0;
+			}
+		}
+		else if ((input[i] == '<' || input[i] == '>') && i < input_len && input[i + 1] == ' ') {  // 重定向参数
+			if (input[i] == '<') {
+				flag_io = 1;
+				redir_in++;
+				if (redir_in > 1) {
+					printf("Error redirect command.\n");
+					for (i = 0; i < k; i++) {
+						free(arg[i]);
+					}
+					if (redir_in != 0) {
+						free(file_in);
+					}
+					if (redir_out != 0) {
+						free(file_out);
+					}
+					return 0;
+				}
+			}
+			if (input[i] == '>') {
+				flag_io = 0;
+				redir_out++;
+				if (redir_out > 1) {
+					printf("Error redirect command.\n");
+					for (i = 0; i < k; i++) {
+						free(arg[i]);
+					}
+					free(input);
+					free(file_in);
+					free(file_out);
+					return 0;
+				}
+			}
+
+			// 重定向的文件
+			i += 2;
+			while (input[i] == ' ') {
+				i++;
+			}
+			while (input[i] != '\0' && input[i] != ' ') {
+				buf[j++] = input[i++];
+			}
+			buf[j] = '\0';
+			if (flag_io == 1) {
+				file_in = (char*)malloc(sizeof(char) * j);
+				strcpy(file_in, buf);
+			}
+			else {
+				file_out = (char*)malloc(sizeof(char) * j);
+				strcpy(file_out, buf);
+			}
+
+			j = 0;
+			continue;
+		}
+		else { // 普通参数
+			if (i > 0 && input[i - 1] == ' ' && input[i] == '&' && input[i + 1] == '\0') {  // 后台执行
+				is_bg = 1;
+				continue;
+			}
+			else {
+				buf[j++] = input[i];
+			}
+		}
+	}
+	/*for (i = 0; i < k; i++) {
+		printf("arg[%d]: '%s'\n", i, arg[i]);
+	}
+	printf("redirect: in-%d  out-%d\nredirect_file: in-%s  out-%s\n", redir_in, redir_out, file_in, file_out);*/
+
+	// 查找命令是否存在
+	if (is_founded(arg[0]) == 0) {
+		printf("%s: Executable program not found.\n", arg[0]);
+		for (i = 0; i < k; i++) {
+			free(arg[i]);
+		}
+		if (redir_in != 0) {
+			free(file_in);
+		}
+		if (redir_out != 0) {
+			free(file_out);
+		}
+		return 0;
+	}
+
+	// 执行命令
+	//int temp = dup(STDOUT_FILENO);
+	if ((pid = fork()) == -1) {
+		printf("%s: Failed to execute.\n", arg[0]);
+	}
+	else if (pid == 0) {  // 子进程
+		// 重定向, 这里使用文件流会导致文件末尾出现乱码，因此使用dup2
+		int fd;
+		if (redir_in == 1) {
+			if ((fd = open(file_in, O_RDONLY, S_IRUSR | S_IWUSR)) == -1) {
+				printf("Cannot open '%s'.\n", file_in);
+				for (i = 0; i < k; i++) {
+					free(arg[i]);
+				}
+				if (redir_in != 0) {
+					free(file_in);
+				}
+				if (redir_out != 0) {
+					free(file_out);
+				}
+				return 0;
+			}
+			dup2(fd, STDIN_FILENO);
+		}
+		else {
+			if (is_bg == 1) {
+				freopen("/dev/null", "r", stdin);
+			}
+		}
+		if (redir_out == 1) {
+			if ((fd = open(file_out, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) == -1) {
+				printf("Cannot open '%s'.\n", file_out);
+				for (i = 0; i < k; i++) {
+					free(arg[i]);
+				}
+				if (redir_in != 0) {
+					free(file_in);
+				}
+				if (redir_out != 0) {
+					free(file_out);
+				}
+				return 0;
+			}
+			dup2(fd, STDOUT_FILENO);
+		}
+		else {
+			if (is_bg == 1) {
+				freopen("/dev/null", "w", stdout);
+			}
+		}
+
+		if (is_bg == 0) {
+			execvp(arg[0], arg);
+			// 子进程未被成功执行
+			printf("%s: Error command.\n", arg[0]);
+			return 0;
+		}
+		if (is_bg == 1) {
+			execvp(arg[0], arg);
+			// 子进程未被成功执行
+			printf("%s: Error command.\n", arg[0]);
+		}
+	}
+	else if (pid > 0) {  // 父进程
+		// 将子进程加入任务节点
+		//add_job_node(arg[0], pid);
+
+		if (is_bg == 0) {
+			_pid = pid;
+			waitpid(pid, &status, WUNTRACED | WCONTINUED);
+			//dup2(temp, STDOUT_FILENO);
+			int err = WEXITSTATUS(status);
+			if (err) {
+				printf("Error: %s\n", strerror(err));
+			}
+			_pid = 0;
+		}
+	}
+
+	// 释放变量内存
+	for (i = 0; i < k; i++) {
+		free(arg[i]);
+	}
+	if (redir_in != 0) {
+		free(file_in);
+	}
+	if (redir_out != 0) {
+		free(file_out);
+	}
+
+	return 1;
 }
 
-int pipel() {
+int pipel(char* input, int input_len) {
+	// 解析命令参数
+
+
 	return 0;
 }
 
