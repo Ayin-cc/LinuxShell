@@ -100,10 +100,10 @@ int main() {
 		}
 
 		/** 3. 内部命令 */
-		if (strcmp(arg[0], "exit") == 0) {  // exit 命令
+		if (strcmp(arg[0], "exit") == 0 || strcmp(arg[0], "quit") == 0) {  // exit/quit 命令
 			add_history_command(input);
 
-			printf(" Bye!\n");
+			printf("%sBye!%s\n", COLOR_BLUE, COLOR_DEFINE);
 
 			for (i = 0; i < k; i++) {
 				free(arg[i]);
@@ -197,7 +197,7 @@ int main() {
 					execvp(arg[0], arg);
 					// 子进程未被成功执行
 					printf("%s: Error command.\n", arg[0]);
-					continue;
+					exit(1);
 				}
 				if (is_bg == 1) {
 					freopen("/dev/null", "w", stdout);
@@ -206,6 +206,7 @@ int main() {
 					execvp(arg[0], arg);
 					// 子进程未被成功执行
 					printf("%s: Error command.\n", arg[0]);
+					exit(1);
 				}
 			}
 			else if(pid > 0) {  // 父进程
@@ -358,7 +359,7 @@ int redirect(char* input, int input_len) {
 				j = 0;
 			}
 		}
-		else if ((input[i] == '<' || input[i] == '>') && i < input_len && input[i + 1] == ' ') {  // 重定向参数
+		else if ((input[i] == '<' || input[i] == '>') && i < input_len && input[i + 1] == ' ' && i > 0 && input[i - 1] == ' ') {  // 重定向参数
 			if (input[i] == '<') {
 				flag_io = 1;
 				redir_in++;
@@ -443,15 +444,14 @@ int redirect(char* input, int input_len) {
 	}
 
 	// 执行命令
-	//int temp = dup(STDOUT_FILENO);
 	if ((pid = fork()) == -1) {
 		printf("%s: Failed to execute.\n", arg[0]);
 	}
 	else if (pid == 0) {  // 子进程
-		// 重定向, 这里使用文件流会导致文件末尾出现乱码，因此使用dup2
-		int fd;
-		if (redir_in == 1) {
-			if ((fd = open(file_in, O_RDONLY, S_IRUSR | S_IWUSR)) == -1) {
+		// 重定向, 这里使用文件流会导致文件末尾出现乱码，因此使用dup2操作文件标识符fd
+		if (redir_in == 1) { // 输入重定向
+			int fd_in = open(file_in, O_RDONLY, S_IRUSR | S_IWUSR);
+			if (fd_in == -1) {
 				printf("Cannot open '%s'.\n", file_in);
 				for (i = 0; i < k; i++) {
 					free(arg[i]);
@@ -462,17 +462,22 @@ int redirect(char* input, int input_len) {
 				if (redir_out != 0) {
 					free(file_out);
 				}
-				return 0;
+				exit(1);
 			}
-			dup2(fd, STDIN_FILENO);
+			if (dup2(fd_in, STDIN_FILENO) == -1) {
+				printf("Failed to redirect to '%s'.\n", file_in);
+				exit(1);
+			}
+			close(fd_in);
 		}
 		else {
 			if (is_bg == 1) {
 				freopen("/dev/null", "r", stdin);
 			}
 		}
-		if (redir_out == 1) {
-			if ((fd = open(file_out, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) == -1) {
+		if (redir_out == 1) { // 输出重定向
+			int fd_out = open(file_out, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+			if (fd_out == -1) {
 				printf("Cannot open '%s'.\n", file_out);
 				for (i = 0; i < k; i++) {
 					free(arg[i]);
@@ -483,36 +488,32 @@ int redirect(char* input, int input_len) {
 				if (redir_out != 0) {
 					free(file_out);
 				}
-				return 0;
+				exit(1);
 			}
-			dup2(fd, STDOUT_FILENO);
+			if (dup2(fd_out, STDOUT_FILENO) == -1) {
+				printf("Failed to redirect to '%s'.\n", file_out);
+				exit(1);
+			}
+			close(fd_out);
 		}
 		else {
 			if (is_bg == 1) {
 				freopen("/dev/null", "w", stdout);
 			}
 		}
-
-		if (is_bg == 0) {
-			execvp(arg[0], arg);
-			// 子进程未被成功执行
-			printf("%s: Error command.\n", arg[0]);
-			return 0;
-		}
-		if (is_bg == 1) {
-			execvp(arg[0], arg);
-			// 子进程未被成功执行
-			printf("%s: Error command.\n", arg[0]);
-		}
+		execvp(arg[0], arg);
+		// 子进程未被成功执行
+		printf("%s: Error command.\n", arg[0]);
+		exit(1);
 	}
 	else if (pid > 0) {  // 父进程
 		// 将子进程加入任务节点
-		//add_job_node(arg[0], pid);
+		add_job_node(arg[0], pid);
 
 		if (is_bg == 0) {
 			_pid = pid;
 			waitpid(pid, &status, WUNTRACED | WCONTINUED);
-			//dup2(temp, STDOUT_FILENO);
+
 			int err = WEXITSTATUS(status);
 			if (err) {
 				printf("Error: %s\n", strerror(err));
@@ -536,10 +537,205 @@ int redirect(char* input, int input_len) {
 }
 
 int pipel(char* input, int input_len) {
+	int i = 0, j = 0, k = 0, is_bg = 0, cmd_count = 0, redir_out = 0, redir_in = 0, status = 0;
+	char* arg[12][20], * file_in = NULL, * file_out = NULL;
+	pid_t pid;
+
 	// 解析命令参数
+	for (i = 0, j = 0, k = 0; i <= input_len; i++) {
+		if (input[i] == ' ' || input[i] == '\0') {
+			if (j == 0) {  // 省略多个相连的空格
+				continue;
+			}
+			else {  // 取出一个参数
+				buf[j++] = '\0';
+				arg[cmd_count][k] = (char*)malloc(sizeof(char) * j);
+				strcpy(arg[cmd_count][k++], buf);
+				j = 0;
+			}
+		}
+		else if (input[i] == '|' && i < input_len && input[i + 1] == ' ' && i > 0 && input[i - 1] == ' ') {  // 管道符
+			cmd_count++;
+			k = 0;
+			j = 0;
+		}
+		else if ((input[i] == '>' || input[i] == '<') && i < input_len && input[i + 1] == ' ' && i > 0 && input[i - 1] == ' ') { // 包含重定向
+			if (input[i] == '>' && cmd_count > 0 && redir_out == 0) { // 输出重定向
+				redir_out = 1;
+				// 解析文件名
+				i += 2;
+				while (input[i] == ' ') {
+					i++;
+				}
+				while (input[i] != '\0' && input[i] != ' ') {
+					buf[j++] = input[i++];
+				}
+				buf[j] = '\0';
+				file_out = (char*)malloc(sizeof(char) * j);
+				strcpy(file_out, buf);
+				j = 0;
+				continue;
+			}
+			if (input[i] == '<' && cmd_count == 0 && redir_in == 0) { // 输入重定向
+				redir_in = 0;
+				// 解析文件名
+				i += 2;
+				while (input[i] == ' ') {
+					i++;
+				}
+				while (input[i] != '\0' && input[i] != ' ') {
+					buf[j++] = input[i++];
+				}
+				buf[j] = '\0';
+				file_in = (char*)malloc(sizeof(char) * j);
+				strcpy(file_in, buf);
+				j = 0;
+				continue;
+			}
+			// 出现错误
+			printf("Error: Unexpected redirect format.\n");
+			return 0;
+		}
+		else { // 普通参数
+			if (i > 0 && input[i - 1] == ' ' && input[i] == '&' && input[i + 1] == '\0') {  // 后台执行
+				is_bg = 1;
+				continue;
+			}
+			else {
+				buf[j++] = input[i];
+			}
+		}
+	}
 
+	int exe_count = 0, pre_fd = 0, fds[2];
+	// 创建管道
+	if (pipe(fds) == -1) {
+		for (i = 0; i < cmd_count; i++) {
+			free(arg[i]);
+		}
+		if (redir_in != 0) {
+			free(file_in);
+		}
+		if (redir_out != 0) {
+			free(file_out);
+		}
+		printf("Failed to create pipe.\n");
+		return 0;
+	}
+	// 执行命令
+	while(exe_count <= cmd_count) {
+		// 查找命令是否存在
+		if (is_founded(arg[exe_count][0]) == 0) {
+			printf("%s: Executable program not found.\n", arg[exe_count][0]);
+			for (i = 0; i < cmd_count; i++) {
+				free(arg[i]);
+			}
+			if (redir_in != 0) {
+				free(file_in);
+			}
+			if (redir_out != 0) {
+				free(file_out);
+			}
+			return 0;
+		}
 
-	return 0;
+		// 创建进程
+		if ((pid = fork()) == -1) {
+			printf("%s: Failed to execute.\n", arg[0]);
+		}
+		else if (pid == 0) { // 子进程
+			// 重定向第一条命令的输入
+			if (exe_count == 0 && redir_in == 1) {
+				int fd_in = open(file_in, O_RDONLY, S_IRUSR | S_IWUSR);
+				if (fd_in == -1) {
+					printf("Cannot open '%s'.\n", file_in);
+					for (i = 0; i < cmd_count; i++) {
+						free(arg[i]);
+					}
+					if (redir_in != 0) {
+						free(file_in);
+					}
+					if (redir_out != 0) {
+						free(file_out);
+					}
+					exit(1);
+				}
+				if (dup2(fd_in, STDIN_FILENO) == -1) {
+					printf("Failed to redirect to '%s'.\n", file_in);
+					exit(1);
+				}
+				close(fd_in);
+			}
+			else {
+				if (exe_count == 0 && is_bg == 1) {
+					freopen("/dev/null", "r", stdin);
+				}
+			}
+			// 重定向最后一条命令的输出
+			if (exe_count == cmd_count && redir_out == 1) {
+				int fd_out = open(file_out, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+				if (fd_out == -1) {
+					printf("Cannot open '%s'.\n", file_out);
+					for (i = 0; i < cmd_count; i++) {
+						free(arg[i]);
+					}
+					if (redir_in != 0) {
+						free(file_in);
+					}
+					if (redir_out != 0) {
+						free(file_out);
+					}
+					exit(1);
+				}
+				if (dup2(fd_out, STDOUT_FILENO) == -1) {
+					printf("Failed to redirect to '%s'.\n", file_out);
+					exit(1);
+				}
+				close(fd_out);
+			}
+			else {
+				if (exe_count == cmd_count && is_bg == 1) {
+					freopen("/dev/null", "w", stdout);
+				}
+			}
+
+			// 上一条管道的输出(读)端，命令的输入
+			if (exe_count > 0) {
+				dup2(pre_fd, STDIN_FILENO);
+			}
+			close(pre_fd);
+			close(fds[0]);
+			// 管道的输入(写)端，命令的输出
+			if (exe_count != cmd_count) {
+				dup2(fds[1], STDOUT_FILENO);
+			}
+			close(fds[1]);
+
+			execvp(arg[exe_count][0], arg[exe_count]);
+			// 子进程未被成功执行
+			printf("%s: Error command.\n", arg[exe_count][0]);
+			exit(1);
+		}
+		else if (pid > 0) { // 父进程
+			pre_fd = fds[0];
+
+			if (is_bg == 0) {
+				_pid = pid;
+				waitpid(pid, &status, WUNTRACED | WCONTINUED);
+
+				int err = WEXITSTATUS(status);
+				if (err) {
+					printf("Error: %s\n", strerror(err));
+					return 0;
+				}
+				_pid = 0;
+			}
+		}
+
+		exe_count++;
+	}
+
+	return 1;
 }
 
 void cd(char* route) {
@@ -556,7 +752,7 @@ void jobs() {
 		int index = 0;
 
 		while (node != NULL) {
-			printf("%d\t%d\t%s\t%s\n", index, node->pid, node->state, node->command);
+			printf("%s%d%s\t%d\t%s\t%s\n", COLOR_BLUE, index, COLOR_DEFINE, node->pid, node->state, node->command);
 			node = node->link;
 		}
 	}
